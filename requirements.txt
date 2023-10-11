@@ -3,3 +3,4 @@ fastapi
 shazamio
 requests
 uvicorn
+bs4
