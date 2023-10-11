@@ -4,3 +4,5 @@ shazamio
 requests
 uvicorn
 bs4
+python-multipart
+with
