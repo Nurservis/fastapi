@@ -1,7 +1,4 @@
-logging
-datetime
 aiohttp
 fastapi
 shazamio
-random
 requests
