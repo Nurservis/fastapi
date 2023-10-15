@@ -6,8 +6,9 @@ from shazamio import Shazam
 import tempfile
 import random
 from fastapi import HTTPException
-
+from fastapi.encoders import jsonable_encoder
 from bs4 import BeautifulSoup as BS
+import requests
 
 def random_ip():
     ips = ['46.227.123.', '37.110.212.', '46.255.69.', '62.209.128.', '37.110.214.', '31.135.209.', '37.110.213.']
@@ -22,25 +23,23 @@ async def recognize_url(url: str):
     if not url:
         logging.error(f"{datetime.datetime.now()} - No URL provided")
         return {"status": False, "message": "No URL provided"}
-    else:
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url) as resp:
-                    if resp.status != 200:
-                        logging.error(f"{datetime.datetime.now()} - {resp.status}")
-                        result = {"status": False, "message": "Invalid URL"}
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    logging.error(f"{datetime.datetime now()} - {resp.status}")
+                    result = {"status": False, "message": "Invalid URL"}
+                else:
+                    logging.info("Recognizing song from audio URL.")
+                    bytes_file = await resp.read()
+                    if len(bytes_file) > 20971520:
+                        result = {"status": False, "message": "File size is too large"}
                     else:
-                        logging.info("Recognizing song from audio URL.")
-                        bytes_file = await resp.read()
-                        if len(bytes_file) > 20971520:
-                            result = {"status": False, "message": "File size is too large"}
-                        else:
-                            result = await shazam.recognize_song(bytes_file)
-                        await session.close()
-                    return result
-        except Exception as e:
-            logging.error(f"{datetime.datetime.now()} - {e}")
-            return {"status": False, "message": "Something went wrong"}
+                        result = await shazam.recognize_song(bytes_file)
+        return result
+    except Exception as e:
+        logging.error(f"{datetime.datetime.now()} - {e}")
+        return {"status": False, "message": "Something went wrong"}
 
 @app.post("/recognize-song")
 async def recognize_song(file: UploadFile):
@@ -50,9 +49,9 @@ async def recognize_song(file: UploadFile):
             audio_path = temp_audio.name
             shazam = Shazam()
             result = await shazam.recognize_song(audio_path)
-            return result
+        return result
     except Exception as e:
-        return {"error": str(e}
+        return {"error": str(e)}
 
 @app.get("/instagram/", response_model=dict)
 async def instagram(url: str):
@@ -101,9 +100,8 @@ async def get_pinterest_info(link: str):
         d = {
             'url': link
         }
-
         r = requests.post(url, headers=header, data=d)
-        r.raise_for_status()  # Raise exception for HTTP errors
+        r.raise_for_status()
         soup = BS(r.text, 'html.parser')
         b = soup.select_one("#quality_1 > option:nth-child(2)")
         a = soup.find("div", class_="download-items")
@@ -112,12 +110,10 @@ async def get_pinterest_info(link: str):
             i = a.a.get("href")
         else:
             raise HTTPException(status_code=404, detail="Data not found on the page")
-
         if b is not None:
             result = b["value"]
         else:
             result = i
-
         return {"result": result}
     except requests.exceptions.RequestException as e:
         raise HTTPException(status_code=500, detail="Error in the external request")
@@ -130,7 +126,6 @@ async def get_mp3_url_yt(youtube_url):
         'q': youtube_url,
         'vt': 'mp3'
     }
-
     async with aiohttp.ClientSession() as session:
         async with session.post(api_url, data=data, headers={'X-Requested-With': 'XMLHttpRequest'}) as response:
             if response.status == 200:
@@ -145,7 +140,6 @@ async def get_all_mp3_urls(data):
     time_expires = data['timeExpires']
     token = data['token']
     mp3_info_dict = {}
-
     for index, (quality, info) in enumerate(data['links']['mp3'].items(), start=1):
         if info['f'] == 'mp3':
             mp3_info = {
@@ -157,6 +151,20 @@ async def get_all_mp3_urls(data):
                 'url': f"{base_url}{video_id}/mp3/{info['k']}/{time_expires}/{token}/{index}?f=yt5s.io"
             }
             mp3_info_dict[index] = mp3_info
-
     return mp3_info_dict
 
+@app.get("/youtube/download/audio/", status_code=status.HTTP_200_OK, description="Download audio from Youtube", tags=['youtube'])
+async def youtube_audio_url(url: str):
+    if not url:
+        logging.error(f"{datetime.datetime.now()} - No url provided")
+        return {"status": False, "message": "No url provided"}
+    try:
+        result = await get_mp3_url_yt(url)
+        if result['mess'] == "":
+            res = await get_all_mp3_urls(result)
+            return {"status": True, "result": res}
+        else:
+            return {"status": False, "message": "Something went wrong"}
+    except Exception as e:
+        logging.error(f"{datetime.datetime.now()} - {e}")
+        return {"status": False, "message": "Something went wrong"}
